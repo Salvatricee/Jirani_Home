@@ -1,0 +1,5 @@
+jirani.db
+__pycache__/
+.env
+*.pyc
+evaluation-record-*.csv

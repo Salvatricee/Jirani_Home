@@ -1,0 +1,152 @@
+{
+  "name": "Jirani review outcome router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jirani-review-outcome",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Review outcome webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "jirani-review-outcome"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate the review outcome and build a hand-off task record.\n// This node only creates a RECORD. It never changes an order, refund or delivery (P05).\nconst item = $input.first().json;\nconst body = item.body || item;\nconst required = ['ticket_id', 'draft_id', 'draft_version', 'route', 'destination', 'action', 'reviewer'];\nconst validActions = ['approved', 'edited_and_approved', 'rejected'];\nconst errors = [];\nconst missing = required.filter(k => body[k] === undefined || body[k] === null || body[k] === '');\nif (missing.length) errors.push('missing fields: ' + missing.join(', '));\nif (body.action && !validActions.includes(body.action)) errors.push('invalid action: ' + body.action);\nif (errors.length) {\n  return [{ json: { valid: false, status: 'rejected', errors } }];\n}\nif (body.action === 'rejected') {\n  return [{ json: { valid: true, status: 'no_task', reason: 'Draft rejected by reviewer; no hand-off created',\n                    ticket_id: body.ticket_id, draft_id: body.draft_id } }];\n}\nconst priorities = {\n  safety_queue: ['urgent', 1], service_lead: ['high', 8], logistics_followup: ['normal', 24],\n  manager_decision: ['normal', 24], returns_review: ['normal', 24], service_review: ['normal', 48],\n  agent_followup: ['normal', 24], agent_review: ['normal', 24]\n};\nconst [priority, dueHours] = priorities[body.destination] || ['normal', 24];\nreturn [{ json: {\n  valid: true,\n  status: 'task_created',\n  run_id: 'WF-' + Date.now().toString(36).toUpperCase(),\n  ticket_id: body.ticket_id,\n  draft_id: body.draft_id,\n  task: {\n    queue: body.destination,\n    priority,\n    due_hours: dueHours,\n    title: body.route + ' for ticket ' + body.ticket_id,\n    policy_ids: body.policy_ids || [],\n    approved_by: body.reviewer,\n    draft_version: body.draft_version\n  },\n  note: 'Record only. No order, refund or delivery was changed.'\n} }];"
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Validate and build task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Payload valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Respond rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Review outcome webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate and build task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and build task": {
+      "main": [
+        [
+          {
+            "node": "Payload valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload valid?": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "note": "Fictional classroom workflow. Creates a task record only; no credentials required."
+  }
+}
